@@ -1,0 +1,26 @@
+{
+    "48067342-daba-46c9-86eb-5c20eb0f6caf": {
+        "usuario": "Dudu",
+        "autenticado_em": "2025-10-25 18:49:45",
+        "expira_em": "2025-10-25 19:04:45",
+        "metodo": "facial"
+    },
+    "f34274c3-2488-4a33-8803-6827a205d1e6": {
+        "usuario": "Dudu",
+        "autenticado_em": "2025-10-25 18:58:51",
+        "expira_em": "2025-10-25 19:13:51",
+        "metodo": "facial"
+    },
+    "a2c5ccaf-8a2c-445c-bf9c-2e0222d677e7": {
+        "usuario": "Dudu",
+        "autenticado_em": "2025-10-25 19:17:18",
+        "expira_em": "2025-10-25 19:32:18",
+        "metodo": "facial"
+    },
+    "8b026248-b4fd-47f1-976a-315d8ffec200": {
+        "usuario": "Dudu",
+        "autenticado_em": "2025-10-25 19:20:46",
+        "expira_em": "2025-10-25 19:35:46",
+        "metodo": "facial"
+    }
+}

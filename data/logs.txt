@@ -1,0 +1,11 @@
+[25/10/2025 19:13:43] Face do usuário 'Dudu' cadastrada.
+[25/10/2025 19:17:18] Sessão criada para 'Dudu' (ID: a2c5ccaf-8a2c-445c-bf9c-2e0222d677e7, expira em 15min)
+[25/10/2025 19:17:18] Colaborador 'Dudu' fez login facial.
+[25/10/2025 19:20:46] Sessão criada para 'Dudu' (ID: 8b026248-b4fd-47f1-976a-315d8ffec200, expira em 15min)
+[25/10/2025 19:20:46] Colaborador 'Dudu' fez login facial.
+[25/10/2025 19:30:19] Usuário 'TesteUser' cadastrado sem reconhecimento facial
+[25/10/2025 19:30:19] Sistema iniciado para teste
+[25/10/2025 19:30:19] Usuário TestUser acessou o sistema
+[25/10/2025 19:30:19] Operação de teste concluída
+[25/10/2025 19:30:19] Sessão criada para 'TesteUser' (ID: 1aa19f0d-ffa6-4015-a99b-19cb6ed1d0a8, expira em 15min)
+[25/10/2025 19:30:19] Sessão encerrada para 'TesteUser' (ID: 1aa19f0d-ffa6-4015-a99b-19cb6ed1d0a8)
