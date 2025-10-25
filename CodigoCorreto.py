@@ -1,8 +1,8 @@
-import sys, os, json, datetime, subprocess
+import sys, os, json, datetime, subprocess, hashlib
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QPushButton,
     QListWidget, QFileDialog, QMessageBox, QHBoxLayout, QTextEdit, QStackedWidget,
-    QInputDialog, QListWidgetItem, QDialog, QDialogButtonBox, QFrame
+    QInputDialog, QListWidgetItem, QDialog, QDialogButtonBox, QFrame, QLineEdit
 )
 from PyQt5.QtCore import Qt, QTimer
 
@@ -19,6 +19,7 @@ LOG_FILE = os.path.join(DATA_DIR, "logs.txt")
 PASTAS_FILE = os.path.join(DATA_DIR, "pastas.json")
 SESSOES_FILE = os.path.join(DATA_DIR, "sessoes.json")
 COFRES_DIR = os.path.join(DATA_DIR, "cofres")
+ADMINS_FILE = os.path.join(DATA_DIR, "admins.json")
 
 # Garante pastas e arquivos
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -32,6 +33,20 @@ if not os.path.exists(PASTAS_FILE):
 if not os.path.exists(SESSOES_FILE):
     with open(SESSOES_FILE, "w", encoding="utf-8") as f:
         json.dump({}, f)
+
+# Cria arquivo de admins com admin master padrão
+if not os.path.exists(ADMINS_FILE):
+    admin_master = {
+        "admin": {
+            "senha_hash": hashlib.sha256("admin123".encode()).hexdigest(),
+            "nivel": "master",
+            "criado_em": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    }
+    with open(ADMINS_FILE, "w", encoding="utf-8") as f:
+        json.dump(admin_master, f, indent=4, ensure_ascii=False)
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] Administrador master criado (usuário: admin, senha: admin123)\n")
 
 # ------------------------- Funções auxiliares -------------------------
 def salvar_log(msg):
@@ -142,6 +157,95 @@ def salvar_metadata_cofre(usuario, metadata):
     metadata_file = os.path.join(obter_cofre_usuario(usuario), "metadata.json")
     with open(metadata_file, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=4, ensure_ascii=False)
+
+# ------------------------- Funções de Administradores -------------------------
+def carregar_admins():
+    try:
+        with open(ADMINS_FILE, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {}
+
+def salvar_admins(admins):
+    with open(ADMINS_FILE, "w", encoding="utf-8") as f:
+        json.dump(admins, f, indent=4, ensure_ascii=False)
+
+def autenticar_admin(usuario, senha):
+    admins = carregar_admins()
+    if usuario not in admins:
+        salvar_log(f"[ADMIN] Tentativa de login com usuário inexistente: '{usuario}'")
+        return False
+
+    senha_hash = hashlib.sha256(senha.encode()).hexdigest()
+    if admins[usuario]["senha_hash"] != senha_hash:
+        salvar_log(f"[ADMIN] Falha de autenticação para '{usuario}' - senha incorreta")
+        return False
+
+    salvar_log(f"[ADMIN] '{usuario}' autenticado com sucesso")
+    return True
+
+def obter_nivel_admin(usuario):
+    admins = carregar_admins()
+    if usuario in admins:
+        return admins[usuario].get("nivel", "admin")
+    return None
+
+def adicionar_admin(usuario_master, novo_usuario, senha):
+    admins = carregar_admins()
+
+    if usuario_master not in admins or admins[usuario_master]["nivel"] != "master":
+        return False, "Apenas administradores master podem adicionar novos admins"
+
+    if novo_usuario in admins:
+        return False, "Administrador já existe"
+
+    admins[novo_usuario] = {
+        "senha_hash": hashlib.sha256(senha.encode()).hexdigest(),
+        "nivel": "admin",
+        "criado_em": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "criado_por": usuario_master
+    }
+
+    salvar_admins(admins)
+    salvar_log(f"[ADMIN] Novo administrador '{novo_usuario}' adicionado por '{usuario_master}'")
+    return True, f"Administrador '{novo_usuario}' adicionado com sucesso"
+
+def remover_admin(usuario_master, usuario_remover):
+    admins = carregar_admins()
+
+    if usuario_master not in admins or admins[usuario_master]["nivel"] != "master":
+        return False, "Apenas administradores master podem remover admins"
+
+    if usuario_remover in admins and admins[usuario_remover]["nivel"] == "master":
+        return False, "Não é possível remover o administrador master"
+
+    if usuario_remover not in admins:
+        return False, "Administrador não existe"
+
+    del admins[usuario_remover]
+    salvar_admins(admins)
+    salvar_log(f"[ADMIN] Administrador '{usuario_remover}' removido por '{usuario_master}'")
+    return True, f"Administrador '{usuario_remover}' removido com sucesso"
+
+def alterar_senha_admin(usuario, senha_antiga, senha_nova):
+    admins = carregar_admins()
+
+    if usuario not in admins:
+        return False, "Administrador não existe"
+
+    senha_antiga_hash = hashlib.sha256(senha_antiga.encode()).hexdigest()
+    if admins[usuario]["senha_hash"] != senha_antiga_hash:
+        salvar_log(f"[ADMIN] Tentativa de alteração de senha falhou para '{usuario}' - senha antiga incorreta")
+        return False, "Senha antiga incorreta"
+
+    admins[usuario]["senha_hash"] = hashlib.sha256(senha_nova.encode()).hexdigest()
+    admins[usuario]["senha_alterada_em"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    salvar_admins(admins)
+    salvar_log(f"[ADMIN] Senha alterada para '{usuario}'")
+    return True, "Senha alterada com sucesso"
 
 # ------------------------- Tela de Gerenciamento de Usuários -------------------------
 class GerenciarUsuarios(QWidget):
@@ -591,11 +695,139 @@ class LogsTempoReal(QWidget):
             self.texto_log.setPlainText(conteudo)
             self.texto_log.moveCursor(self.texto_log.textCursor().End)
 
+# ------------------------- Tela de Gerenciamento de Administradores -------------------------
+class GerenciarAdmins(QWidget):
+    def __init__(self, admin_logado):
+        super().__init__()
+        self.admin_logado = admin_logado
+        layout = QVBoxLayout()
+        self.setStyleSheet("background-color: #f0f4f7;")
+
+        self.label = QLabel("🔑 Gerenciar Administradores")
+        self.label.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #333;")
+        layout.addWidget(self.label)
+
+        # Info do admin logado
+        nivel = obter_nivel_admin(admin_logado)
+        info_label = QLabel(f"Logado como: {admin_logado} ({nivel})")
+        info_label.setStyleSheet("font-size: 12px; color: #666; margin-bottom: 10px;")
+        layout.addWidget(info_label)
+
+        self.lista_admins = QListWidget()
+        layout.addWidget(self.lista_admins)
+
+        btn_layout = QHBoxLayout()
+        self.btn_add = QPushButton("Adicionar Admin")
+        self.btn_remover = QPushButton("Remover Admin")
+        self.btn_senha = QPushButton("Alterar Minha Senha")
+
+        for btn in [self.btn_add, self.btn_remover, self.btn_senha]:
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #0078d7;
+                    color: white;
+                    border-radius: 6px;
+                    padding: 6px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #005fa3;
+                }
+            """)
+
+        btn_layout.addWidget(self.btn_add)
+        btn_layout.addWidget(self.btn_remover)
+        btn_layout.addWidget(self.btn_senha)
+        layout.addLayout(btn_layout)
+
+        # Desabilita botões se não for master
+        if nivel != "master":
+            self.btn_add.setEnabled(False)
+            self.btn_remover.setEnabled(False)
+            aviso = QLabel("⚠️ Apenas administradores master podem adicionar/remover admins")
+            aviso.setStyleSheet("color: #ff9800; font-size: 11px; margin-top: 5px;")
+            layout.addWidget(aviso)
+
+        self.setLayout(layout)
+        self.carregar_lista()
+
+        self.btn_add.clicked.connect(self.adicionar_admin)
+        self.btn_remover.clicked.connect(self.remover_admin)
+        self.btn_senha.clicked.connect(self.alterar_senha)
+
+    def carregar_lista(self):
+        self.lista_admins.clear()
+        admins = carregar_admins()
+        for usuario, info in admins.items():
+            nivel = info.get("nivel", "admin")
+            criado = info.get("criado_em", "N/A")
+            display = f"{usuario} ({nivel}) - Criado em: {criado}"
+            self.lista_admins.addItem(display)
+
+    def adicionar_admin(self):
+        usuario, ok = QInputDialog.getText(self, "Adicionar Admin", "Nome do novo administrador:")
+        if not ok or not usuario.strip():
+            return
+        usuario = usuario.strip()
+
+        senha, ok = QInputDialog.getText(self, "Senha", "Senha do novo administrador:", QLineEdit.Password)
+        if not ok or not senha:
+            return
+
+        sucesso, msg = adicionar_admin(self.admin_logado, usuario, senha)
+        if sucesso:
+            QMessageBox.information(self, "Sucesso", msg)
+            self.carregar_lista()
+        else:
+            QMessageBox.warning(self, "Erro", msg)
+
+    def remover_admin(self):
+        item = self.lista_admins.currentItem()
+        if not item:
+            QMessageBox.warning(self, "Erro", "Selecione um administrador.")
+            return
+
+        usuario = item.text().split(" (")[0]
+
+        reply = QMessageBox.question(self, "Confirmar", f"Remover administrador '{usuario}'?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            sucesso, msg = remover_admin(self.admin_logado, usuario)
+            if sucesso:
+                QMessageBox.information(self, "Sucesso", msg)
+                self.carregar_lista()
+            else:
+                QMessageBox.warning(self, "Erro", msg)
+
+    def alterar_senha(self):
+        senha_antiga, ok = QInputDialog.getText(self, "Alterar Senha", "Senha atual:", QLineEdit.Password)
+        if not ok or not senha_antiga:
+            return
+
+        senha_nova, ok = QInputDialog.getText(self, "Nova Senha", "Nova senha:", QLineEdit.Password)
+        if not ok or not senha_nova:
+            return
+
+        senha_confirmacao, ok = QInputDialog.getText(self, "Confirmar", "Confirme a nova senha:", QLineEdit.Password)
+        if not ok or not senha_confirmacao:
+            return
+
+        if senha_nova != senha_confirmacao:
+            QMessageBox.warning(self, "Erro", "As senhas não coincidem!")
+            return
+
+        sucesso, msg = alterar_senha_admin(self.admin_logado, senha_antiga, senha_nova)
+        if sucesso:
+            QMessageBox.information(self, "Sucesso", msg)
+        else:
+            QMessageBox.warning(self, "Erro", msg)
+
 # ------------------------- Painel do Administrador -------------------------
 class AdminPanel(QWidget):
-    def __init__(self):
+    def __init__(self, admin_logado):
         super().__init__()
-        self.setWindowTitle("Painel do Administrador")
+        self.admin_logado = admin_logado
+        self.setWindowTitle(f"Painel do Administrador - {admin_logado}")
         self.resize(850, 500)
 
         layout = QHBoxLayout()
@@ -604,9 +836,10 @@ class AdminPanel(QWidget):
 
         self.btn_usuarios = QPushButton("Gerenciar Usuários")
         self.btn_pastas = QPushButton("Gerenciar Pastas")
+        self.btn_admins = QPushButton("Gerenciar Administradores")
         self.btn_logs = QPushButton("Ver Logs em Tempo Real")
 
-        for btn in [self.btn_usuarios, self.btn_pastas, self.btn_logs]:
+        for btn in [self.btn_usuarios, self.btn_pastas, self.btn_admins, self.btn_logs]:
             btn.setStyleSheet("""
                 QPushButton {
                     padding:10px; font-size:15px; text-align:left; background-color:#0078d7; color:white; border-radius:6px;
@@ -620,10 +853,12 @@ class AdminPanel(QWidget):
 
         self.tela_usuarios = GerenciarUsuarios()
         self.tela_pastas = GerenciarPastas()
+        self.tela_admins = GerenciarAdmins(admin_logado)
         self.tela_logs = LogsTempoReal()
 
         self.stack.addWidget(self.tela_usuarios)
         self.stack.addWidget(self.tela_pastas)
+        self.stack.addWidget(self.tela_admins)
         self.stack.addWidget(self.tela_logs)
 
         layout.addLayout(self.menu, 1)
@@ -632,6 +867,7 @@ class AdminPanel(QWidget):
 
         self.btn_usuarios.clicked.connect(lambda: self.stack.setCurrentWidget(self.tela_usuarios))
         self.btn_pastas.clicked.connect(lambda: self.stack.setCurrentWidget(self.tela_pastas))
+        self.btn_admins.clicked.connect(lambda: self.stack.setCurrentWidget(self.tela_admins))
         self.btn_logs.clicked.connect(lambda: self.stack.setCurrentWidget(self.tela_logs))
 
 # ------------------------- Tela do Cofre -------------------------
@@ -1197,6 +1433,102 @@ class ColaboradorPanel(QWidget):
         self.cofre_window = CofrePanel(usuario, self.sessao_id)
         self.cofre_window.show()
 
+# ------------------------- Tela de Login de Administrador -------------------------
+class LoginAdmin(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Login de Administrador")
+        self.resize(400, 250)
+        self.admin_autenticado = None
+
+        layout = QVBoxLayout()
+
+        # Título
+        title = QLabel("🔑 Login de Administrador")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 20px;")
+        layout.addWidget(title)
+
+        # Info sobre admin master
+        info = QLabel("Admin Master padrão:\nUsuário: admin\nSenha: admin123")
+        info.setAlignment(Qt.AlignCenter)
+        info.setStyleSheet("font-size: 11px; color: #666; margin-bottom: 15px; padding: 10px; background-color: #e3f2fd; border-radius: 5px;")
+        layout.addWidget(info)
+
+        # Campo usuário
+        self.label_usuario = QLabel("Usuário:")
+        layout.addWidget(self.label_usuario)
+        self.input_usuario = QLineEdit()
+        self.input_usuario.setPlaceholderText("Digite seu usuário")
+        layout.addWidget(self.input_usuario)
+
+        # Campo senha
+        self.label_senha = QLabel("Senha:")
+        layout.addWidget(self.label_senha)
+        self.input_senha = QLineEdit()
+        self.input_senha.setEchoMode(QLineEdit.Password)
+        self.input_senha.setPlaceholderText("Digite sua senha")
+        layout.addWidget(self.input_senha)
+
+        # Botões
+        btn_layout = QHBoxLayout()
+        self.btn_entrar = QPushButton("Entrar")
+        self.btn_cancelar = QPushButton("Cancelar")
+
+        self.btn_entrar.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border-radius: 6px;
+                padding: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3e8e41;
+            }
+        """)
+
+        self.btn_cancelar.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border-radius: 6px;
+                padding: 10px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+
+        btn_layout.addWidget(self.btn_entrar)
+        btn_layout.addWidget(self.btn_cancelar)
+        layout.addLayout(btn_layout)
+
+        self.setLayout(layout)
+
+        # Conectar eventos
+        self.btn_entrar.clicked.connect(self.fazer_login)
+        self.btn_cancelar.clicked.connect(self.reject)
+        self.input_senha.returnPressed.connect(self.fazer_login)
+
+    def fazer_login(self):
+        usuario = self.input_usuario.text().strip()
+        senha = self.input_senha.text()
+
+        if not usuario or not senha:
+            QMessageBox.warning(self, "Erro", "Preencha todos os campos!")
+            return
+
+        if autenticar_admin(usuario, senha):
+            self.admin_autenticado = usuario
+            QMessageBox.information(self, "Sucesso", f"Bem-vindo, {usuario}!")
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Erro", "Usuário ou senha incorretos!")
+            self.input_senha.clear()
+            self.input_senha.setFocus()
+
 # ------------------------- Menu Principal -------------------------
 class MenuPrincipal(QWidget):
     def __init__(self):
@@ -1239,8 +1571,12 @@ class MenuPrincipal(QWidget):
         self.btn_user.clicked.connect(self.abrir_colab)
 
     def abrir_admin(self):
-        self.admin = AdminPanel()
-        self.admin.show()
+        # Exige login de administrador
+        login_dialog = LoginAdmin()
+        if login_dialog.exec_() == QDialog.Accepted:
+            admin_usuario = login_dialog.admin_autenticado
+            self.admin = AdminPanel(admin_usuario)
+            self.admin.show()
 
     def abrir_colab(self):
         self.colab = ColaboradorPanel()
